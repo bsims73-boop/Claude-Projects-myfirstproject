@@ -6,7 +6,7 @@ import json as _json
 from flask import Flask, jsonify, redirect, render_template, request, send_file, send_from_directory, url_for
 
 import config
-from modules import db, exporter, programs, scanner
+from modules import almanac, db, exporter, programs, scanner
 
 app = Flask(__name__)
 
@@ -36,6 +36,27 @@ def summary_page():
 def programs_page():
     farm_types = programs.FARM_TYPES
     return render_template("programs.html", farm_types=farm_types)
+
+
+@app.route("/almanac")
+def almanac_page():
+    return render_template("almanac.html")
+
+
+@app.route("/api/moon-phase")
+def api_moon_phase():
+    result = almanac.get_moon_phase()
+    return jsonify(result)
+
+
+@app.route("/api/frost-forecast", methods=["POST"])
+def api_frost_forecast():
+    body = request.get_json(force=True)
+    zip_code = str(body.get("zip", "")).strip()
+    if not zip_code or not zip_code.isdigit() or len(zip_code) != 5:
+        return jsonify({"error": "A valid 5-digit ZIP code is required."}), 400
+    result = almanac.get_frost_forecast(zip_code)
+    return jsonify(result)
 
 
 @app.route("/api/counties/<path:state_name>")
@@ -162,6 +183,6 @@ def handle_error(e):
 if __name__ == "__main__":
     db.init_db()
     config.RECEIPTS_FOLDER.mkdir(exist_ok=True)
-    print("\n Farm Receipt Manager is running!")
+    print("\n Farmers Helper is running!")
     print(" Open your browser to: http://localhost:5000\n")
     app.run(host="127.0.0.1", port=5000, debug=False)
