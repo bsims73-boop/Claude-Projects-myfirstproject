@@ -56,6 +56,14 @@
   <p class="text-muted">Researching available programs... this may take up to 30 seconds.</p>
 </div>
 
+<!-- Always-visible controls -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <small id="lastUpdated" class="text-muted">Not yet searched</small>
+  <button class="btn btn-outline-success btn-sm" id="refreshBtn" onclick="refreshPrograms()">
+    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+  </button>
+</div>
+
 <!-- Results -->
 <div id="programsResults" class="d-none">
   <div class="d-flex align-items-center justify-content-between mb-3">
@@ -72,12 +80,6 @@
   </div>
 
   <div class="accordion" id="programsAccordion"></div>
-
-  <div class="text-center mt-3">
-    <button class="btn btn-outline-success" id="loadMoreBtn" onclick="loadMorePrograms()" style="display:none;">
-      <i class="bi bi-arrow-down-circle me-1"></i>Load More Programs
-    </button>
-  </div>
 </div>
 
 <div id="programsEmpty" class="d-none text-center text-muted py-5">

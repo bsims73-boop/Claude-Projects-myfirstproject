@@ -127,11 +127,8 @@ def api_programs():
     county = body.get("county", "").strip()
     if county and county not in _COUNTIES.get(state, []):
         county = ""
-    try:
-        page = int(body.get("page", 1))
-    except (ValueError, TypeError):
-        return jsonify({"error": "page must be an integer"}), 400
-    result = programs.research_farm_programs(state, farm_type, county, page)
+    force_refresh = bool(body.get("force_refresh", False))
+    result = programs.research_farm_programs(state, farm_type, county, force_refresh)
     return jsonify(result)
 
 

@@ -68,25 +68,22 @@ class TestGrantsGovAlwaysQueried(unittest.TestCase):
         """grants.gov is fetched even when SAM and Simpler keys are absent."""
         from modules import api_clients
 
-        # Ensure neither optional key is set
         with patch.object(config, "SAM_GOV_API_KEY", ""), \
              patch.object(config, "SIMPLER_GRANTS_API_KEY", ""), \
              patch("modules.api_clients.requests") as mock_req, \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
-            # Grants.gov POST returns empty hit list
+            mock_db.get_program_cache.return_value = None
             mock_req.post.return_value = _mock_response({"data": {"oppHits": []}})
-            mock_req.get.return_value = _mock_response({})  # SAM / Simpler never reached
+            mock_req.get.return_value = _mock_response({})
 
-            # Claude mock for fallback path
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_claude_response("[]")
             mock_get_client.return_value = mock_client
 
             from modules.programs import research_farm_programs
             research_farm_programs("Iowa", "Dairy")
 
-        # requests.post must have been called (grants.gov uses POST)
         mock_req.post.assert_called_once()
         call_args = mock_req.post.call_args
         self.assertIn("grants.gov", call_args[0][0])
@@ -173,10 +170,11 @@ class TestParallelFetch(unittest.TestCase):
         with patch("modules.api_clients.fetch_grants_gov", return_value=[]) as mock_grants, \
              patch("modules.api_clients.fetch_sam_gov", return_value=[]) as mock_sam, \
              patch("modules.api_clients.fetch_simpler_grants", return_value=[]) as mock_simpler, \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_claude_response("[]")
             mock_get_client.return_value = mock_client
 
             from modules.programs import research_farm_programs
@@ -207,10 +205,11 @@ class TestParallelFetch(unittest.TestCase):
                 pass
 
         with patch("modules.programs.concurrent.futures.ThreadPoolExecutor", FakeExecutor), \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_claude_response("[]")
             mock_get_client.return_value = mock_client
 
             from modules.programs import research_farm_programs
@@ -232,21 +231,11 @@ class TestDeduplicationByStableId(unittest.TestCase):
         from modules.api_clients import deduplicate
 
         records = [
-            {
-                "title": "Program A",
-                "opportunity_id": "42",
-                "agency": "FSA",
-                "synopsis": None,
-                "source": "grants.gov",
-            },
-            {
-                "title": "Program A",
-                "opportunity_id": "42",
-                "agency": "FSA",
-                "synopsis": "A richer description",
-                "close_date": "2026-12-31",
-                "source": "simpler.grants.gov",
-            },
+            {"title": "Program A", "opportunity_id": "42", "agency": "FSA",
+             "synopsis": None, "source": "grants.gov"},
+            {"title": "Program A", "opportunity_id": "42", "agency": "FSA",
+             "synopsis": "A richer description", "close_date": "2026-12-31",
+             "source": "simpler.grants.gov"},
         ]
         result = deduplicate(records)
         self.assertEqual(len(result), 1)
@@ -254,24 +243,13 @@ class TestDeduplicationByStableId(unittest.TestCase):
     def test_richer_record_kept_by_stable_id(self):
         from modules.api_clients import deduplicate
 
-        sparse = {
-            "title": "Program A",
-            "opportunity_id": "42",
-            "agency": None,
-            "synopsis": None,
-            "source": "grants.gov",
-        }
-        rich = {
-            "title": "Program A",
-            "opportunity_id": "42",
-            "agency": "USDA-FSA",
-            "synopsis": "Details here",
-            "close_date": "2026-06-30",
-            "source": "simpler.grants.gov",
-        }
+        sparse = {"title": "Program A", "opportunity_id": "42", "agency": None,
+                  "synopsis": None, "source": "grants.gov"}
+        rich = {"title": "Program A", "opportunity_id": "42", "agency": "USDA-FSA",
+                "synopsis": "Details here", "close_date": "2026-06-30",
+                "source": "simpler.grants.gov"}
         result = deduplicate([sparse, rich])
         self.assertEqual(len(result), 1)
-        # The rich record has more non-None values
         self.assertEqual(result[0]["synopsis"], "Details here")
 
     def test_different_ids_not_deduped(self):
@@ -332,21 +310,18 @@ class TestDeduplicationCap(unittest.TestCase):
 
     def test_cap_at_75(self):
         from modules.api_clients import deduplicate
-
         programs = _make_programs(100)
         result = deduplicate(programs)
         self.assertLessEqual(len(result), 75)
 
     def test_exactly_75_when_100_unique_given(self):
         from modules.api_clients import deduplicate
-
         programs = _make_programs(100)
         result = deduplicate(programs)
         self.assertEqual(len(result), 75)
 
     def test_fewer_than_75_returned_when_fewer_given(self):
         from modules.api_clients import deduplicate
-
         programs = _make_programs(10)
         result = deduplicate(programs)
         self.assertEqual(len(result), 10)
@@ -357,21 +332,20 @@ class TestDeduplicationCap(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestHasMoreLogic(unittest.TestCase):
-    """Criterion 8: has_more is True when any source returns exactly 25; False otherwise."""
+    """Criterion 8: has_more is no longer part of the return shape."""
 
     def _run_with_results(self, grants_n, sam_n, simpler_n):
-        """Helper: mock the three fetchers and return the result dict."""
         with patch("modules.api_clients.fetch_grants_gov",
-                   return_value=_make_programs(grants_n, source="grants.gov")) as _g, \
+                   return_value=_make_programs(grants_n, source="grants.gov")), \
              patch("modules.api_clients.fetch_sam_gov",
                    return_value=_make_programs(sam_n, source="sam.gov",
-                                               id_field="assistance_listing_id",
-                                               prefix="sam")) as _s, \
+                                               id_field="assistance_listing_id", prefix="sam")), \
              patch("modules.api_clients.fetch_simpler_grants",
-                   return_value=_make_programs(simpler_n, source="simpler.grants.gov",
-                                               prefix="sg")) as _sg, \
-             patch("modules.programs.get_client") as mock_get_client:
+                   return_value=_make_programs(simpler_n, source="simpler.grants.gov", prefix="sg")), \
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             mock_client = MagicMock()
             mock_client.messages.create.return_value = _make_claude_response(
                 json.dumps([{"program_name": "X", "agency": "Y", "level": "federal",
@@ -381,29 +355,27 @@ class TestHasMoreLogic(unittest.TestCase):
             mock_get_client.return_value = mock_client
 
             from modules.programs import research_farm_programs
-            # Reload to pick up patched fetchers cleanly
             return research_farm_programs("Iowa", "Dairy")
 
-    def test_has_more_true_when_grants_returns_25(self):
+    def test_has_more_not_in_result_when_grants_returns_25(self):
         result = self._run_with_results(25, 0, 0)
-        self.assertTrue(result["has_more"])
+        self.assertNotIn("has_more", result)
 
-    def test_has_more_true_when_sam_returns_25(self):
+    def test_has_more_not_in_result_when_sam_returns_25(self):
         result = self._run_with_results(0, 25, 0)
-        self.assertTrue(result["has_more"])
+        self.assertNotIn("has_more", result)
 
-    def test_has_more_true_when_simpler_returns_25(self):
+    def test_has_more_not_in_result_when_simpler_returns_25(self):
         result = self._run_with_results(0, 0, 25)
-        self.assertTrue(result["has_more"])
+        self.assertNotIn("has_more", result)
 
-    def test_has_more_false_when_all_return_less_than_25(self):
+    def test_has_more_not_in_result_when_all_return_less_than_25(self):
         result = self._run_with_results(5, 3, 7)
-        self.assertFalse(result["has_more"])
+        self.assertNotIn("has_more", result)
 
-    def test_has_more_false_when_all_return_zero(self):
-        # When all return 0, fallback Claude path runs; has_more must be False
+    def test_has_more_not_in_result_when_all_return_zero(self):
         result = self._run_with_results(0, 0, 0)
-        self.assertFalse(result["has_more"])
+        self.assertNotIn("has_more", result)
 
 
 # ---------------------------------------------------------------------------
@@ -411,48 +383,39 @@ class TestHasMoreLogic(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestFallbackToClaude(unittest.TestCase):
-    """Criterion 9: when raw_deduped is empty, Claude is called with training-data prompt."""
+    """Criterion 9: fallback branch is removed — Claude is NOT called when APIs return nothing."""
 
-    def test_fallback_uses_agricultural_policy_expert_system_prompt(self):
+    def test_claude_not_called_when_apis_return_empty(self):
         with patch("modules.api_clients.fetch_grants_gov", return_value=[]), \
              patch("modules.api_clients.fetch_sam_gov", return_value=[]), \
              patch("modules.api_clients.fetch_simpler_grants", return_value=[]), \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_claude_response("[]")
             mock_get_client.return_value = mock_client
 
             from modules.programs import research_farm_programs
             research_farm_programs("Iowa", "Dairy")
 
-        mock_client.messages.create.assert_called_once()
-        kwargs = mock_client.messages.create.call_args.kwargs
-        self.assertIn("agricultural policy expert", kwargs.get("system", ""))
+        mock_get_client.assert_not_called()
 
-    def test_fallback_returns_programs_list(self):
-        programs_data = [{"program_name": "Test Program", "agency": "USDA",
-                          "level": "federal", "description": "desc",
-                          "eligibility": "all", "how_to_apply": "apply",
-                          "documents_needed": [], "website": None, "deadline": None}]
-
+    def test_empty_programs_returned_when_apis_return_empty(self):
         with patch("modules.api_clients.fetch_grants_gov", return_value=[]), \
              patch("modules.api_clients.fetch_sam_gov", return_value=[]), \
              patch("modules.api_clients.fetch_simpler_grants", return_value=[]), \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_claude_response(
-                json.dumps(programs_data)
-            )
-            mock_get_client.return_value = mock_client
+            mock_db.get_program_cache.return_value = None
+            mock_get_client.return_value = MagicMock()
 
             from modules.programs import research_farm_programs
             result = research_farm_programs("Iowa", "Dairy")
 
         self.assertIsInstance(result["programs"], list)
-        self.assertEqual(len(result["programs"]), 1)
-        self.assertEqual(result["programs"][0]["program_name"], "Test Program")
+        self.assertEqual(len(result["programs"]), 0)
 
 
 # ---------------------------------------------------------------------------
@@ -471,8 +434,10 @@ class TestEnrichmentPath(unittest.TestCase):
         with patch("modules.api_clients.fetch_grants_gov", return_value=raw), \
              patch("modules.api_clients.fetch_sam_gov", return_value=[]), \
              patch("modules.api_clients.fetch_simpler_grants", return_value=[]), \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             enriched = [{"program_name": f"Program {i}", "agency": "USDA",
                          "level": "federal", "description": "desc",
                          "eligibility": "all", "how_to_apply": "apply",
@@ -480,9 +445,7 @@ class TestEnrichmentPath(unittest.TestCase):
                         for i in range(3)]
 
             mock_client = MagicMock()
-            mock_client.messages.create.return_value = _make_claude_response(
-                json.dumps(enriched)
-            )
+            mock_client.messages.create.return_value = _make_claude_response(json.dumps(enriched))
             mock_get_client.return_value = mock_client
 
             from modules.programs import research_farm_programs
@@ -498,8 +461,10 @@ class TestEnrichmentPath(unittest.TestCase):
         with patch("modules.api_clients.fetch_grants_gov", return_value=raw), \
              patch("modules.api_clients.fetch_sam_gov", return_value=[]), \
              patch("modules.api_clients.fetch_simpler_grants", return_value=[]), \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             mock_client = MagicMock()
             mock_client.messages.create.return_value = _make_claude_response("[]")
             mock_get_client.return_value = mock_client
@@ -510,7 +475,6 @@ class TestEnrichmentPath(unittest.TestCase):
         kwargs = mock_client.messages.create.call_args.kwargs
         messages = kwargs.get("messages", [])
         user_content = messages[0]["content"] if messages else ""
-        # The enrichment prompt embeds the raw JSON in the user message
         self.assertIn("Program 0", user_content)
 
 
@@ -521,46 +485,43 @@ class TestEnrichmentPath(unittest.TestCase):
 class TestReturnShape(unittest.TestCase):
     """Criterion 11: research_farm_programs always returns dict with required keys."""
 
-    REQUIRED_KEYS = {"programs", "has_more", "page", "sources_queried"}
+    REQUIRED_KEYS = {"programs", "cached_at", "sources_queried"}
 
     def _call(self, grants=None, sam=None, simpler=None, claude_text="[]"):
         with patch("modules.api_clients.fetch_grants_gov", return_value=grants or []), \
              patch("modules.api_clients.fetch_sam_gov", return_value=sam or []), \
              patch("modules.api_clients.fetch_simpler_grants", return_value=simpler or []), \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             mock_client = MagicMock()
             mock_client.messages.create.return_value = _make_claude_response(claude_text)
             mock_get_client.return_value = mock_client
 
             from modules.programs import research_farm_programs
-            return research_farm_programs("Iowa", "Dairy", page=2)
+            return research_farm_programs("Iowa", "Dairy")
 
-    def test_fallback_path_return_shape(self):
+    def test_empty_api_path_return_shape(self):
         result = self._call()
         self.assertIsInstance(result, dict)
         for key in self.REQUIRED_KEYS:
             self.assertIn(key, result, f"Missing key: {key}")
         self.assertIsInstance(result["programs"], list)
-        self.assertIsInstance(result["has_more"], bool)
-        self.assertIsInstance(result["page"], int)
         self.assertIsInstance(result["sources_queried"], list)
+        self.assertNotIn("has_more", result)
+        self.assertNotIn("page", result)
 
     def test_enrichment_path_return_shape(self):
         enriched = [{"program_name": "P", "agency": "A", "level": "federal",
                      "description": "d", "eligibility": "e", "how_to_apply": "h",
                      "documents_needed": [], "website": None, "deadline": None}]
-        result = self._call(
-            grants=_make_programs(3),
-            claude_text=json.dumps(enriched),
-        )
+        result = self._call(grants=_make_programs(3), claude_text=json.dumps(enriched))
         self.assertIsInstance(result, dict)
         for key in self.REQUIRED_KEYS:
             self.assertIn(key, result, f"Missing key: {key}")
-
-    def test_page_is_passed_through(self):
-        result = self._call()
-        self.assertEqual(result["page"], 2)
+        self.assertNotIn("has_more", result)
+        self.assertNotIn("page", result)
 
     def test_sources_queried_always_includes_grants_gov(self):
         result = self._call()
@@ -589,7 +550,9 @@ class TestErrorCardWrapping(unittest.TestCase):
     def _call_with_error(self, exc):
         with patch("modules.api_clients.fetch_grants_gov", side_effect=exc), \
              patch("modules.api_clients.fetch_sam_gov", return_value=[]), \
-             patch("modules.api_clients.fetch_simpler_grants", return_value=[]):
+             patch("modules.api_clients.fetch_simpler_grants", return_value=[]), \
+             patch("modules.programs.db") as mock_db:
+            mock_db.get_program_cache.return_value = None
             from modules.programs import research_farm_programs
             return research_farm_programs("Iowa", "Dairy")
 
@@ -601,9 +564,9 @@ class TestErrorCardWrapping(unittest.TestCase):
         result = self._call_with_error(RuntimeError("network failure"))
         self.assertIn("programs", result)
 
-    def test_exception_result_has_has_more_key(self):
+    def test_exception_result_has_cached_at_key(self):
         result = self._call_with_error(RuntimeError("network failure"))
-        self.assertIn("has_more", result)
+        self.assertIn("cached_at", result)
 
     def test_exception_programs_is_list(self):
         result = self._call_with_error(RuntimeError("network failure"))
@@ -629,14 +592,14 @@ class TestErrorCardWrapping(unittest.TestCase):
         self.assertIn("programs", result)
 
     def test_json_decode_error_wrapped_in_dict(self):
-        """JSONDecodeError from Claude response is also wrapped correctly."""
-        with patch("modules.api_clients.fetch_grants_gov", return_value=[]), \
+        with patch("modules.api_clients.fetch_grants_gov", return_value=_make_programs(1)), \
              patch("modules.api_clients.fetch_sam_gov", return_value=[]), \
              patch("modules.api_clients.fetch_simpler_grants", return_value=[]), \
-             patch("modules.programs.get_client") as mock_get_client:
+             patch("modules.programs.get_client") as mock_get_client, \
+             patch("modules.programs.db") as mock_db:
 
+            mock_db.get_program_cache.return_value = None
             mock_client = MagicMock()
-            # Return bad JSON to trigger JSONDecodeError
             mock_client.messages.create.return_value = _make_claude_response(
                 "this is not valid json {"
             )
@@ -650,21 +613,21 @@ class TestErrorCardWrapping(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Criterion 13 – POST /api/programs accepts page param
+# Criterion 13 – POST /api/programs accepts force_refresh param
 # ---------------------------------------------------------------------------
 
 class TestFlaskProgramsRoute(unittest.TestCase):
-    """Criterion 13: Flask route extracts page from body, defaults to 1."""
+    """Criterion 13: Flask route extracts force_refresh from body, defaults to False."""
 
     def setUp(self):
         import app as flask_app
         flask_app.app.config["TESTING"] = True
         self.client = flask_app.app.test_client()
 
-    def test_page_defaults_to_1(self):
+    def test_force_refresh_defaults_to_false(self):
         with patch("modules.programs.research_farm_programs") as mock_fn:
             mock_fn.return_value = {
-                "programs": [], "has_more": False, "page": 1, "sources_queried": []
+                "programs": [], "sources_queried": [], "cached_at": None
             }
             resp = self.client.post(
                 "/api/programs",
@@ -673,27 +636,26 @@ class TestFlaskProgramsRoute(unittest.TestCase):
             )
         self.assertEqual(resp.status_code, 200)
         args = mock_fn.call_args.args
-        # page is the 4th positional arg: (state, farm_type, county, page)
-        self.assertEqual(args[3], 1)
+        self.assertEqual(args[3], False)
 
-    def test_page_extracted_from_body(self):
+    def test_force_refresh_true_passed_through(self):
         with patch("modules.programs.research_farm_programs") as mock_fn:
             mock_fn.return_value = {
-                "programs": [], "has_more": False, "page": 3, "sources_queried": []
+                "programs": [], "sources_queried": [], "cached_at": None
             }
             resp = self.client.post(
                 "/api/programs",
-                json={"state": "Iowa", "farm_type": "Dairy", "page": 3},
+                json={"state": "Iowa", "farm_type": "Dairy", "force_refresh": True},
                 content_type="application/json",
             )
         self.assertEqual(resp.status_code, 200)
         args = mock_fn.call_args.args
-        self.assertEqual(args[3], 3)
+        self.assertEqual(args[3], True)
 
     def test_response_contains_programs_key(self):
         with patch("modules.programs.research_farm_programs") as mock_fn:
             mock_fn.return_value = {
-                "programs": [], "has_more": False, "page": 1, "sources_queried": ["grants.gov"]
+                "programs": [], "sources_queried": ["grants.gov"], "cached_at": None
             }
             resp = self.client.post(
                 "/api/programs",
@@ -702,9 +664,10 @@ class TestFlaskProgramsRoute(unittest.TestCase):
             )
         data = resp.get_json()
         self.assertIn("programs", data)
-        self.assertIn("has_more", data)
-        self.assertIn("page", data)
         self.assertIn("sources_queried", data)
+        self.assertIn("cached_at", data)
+        self.assertNotIn("has_more", data)
+        self.assertNotIn("page", data)
 
     def test_missing_state_returns_400(self):
         resp = self.client.post(
@@ -724,11 +687,11 @@ class TestFlaskProgramsRoute(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Criterion 14 – Load More button present in HTML
+# Criterion 14 – Load More button absent from HTML
 # ---------------------------------------------------------------------------
 
 class TestLoadMoreButtonInHtml(unittest.TestCase):
-    """Criterion 14: programs.html contains #loadMoreBtn."""
+    """Criterion 14: programs.html no longer contains #loadMoreBtn."""
 
     def _read_template(self):
         base = os.path.dirname(os.path.dirname(__file__))
@@ -736,25 +699,17 @@ class TestLoadMoreButtonInHtml(unittest.TestCase):
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
-    def test_load_more_btn_id_present(self):
+    def test_load_more_btn_id_not_present(self):
         html = self._read_template()
-        self.assertIn("loadMoreBtn", html)
-
-    def test_load_more_btn_is_button_element(self):
-        html = self._read_template()
-        self.assertIn('id="loadMoreBtn"', html)
-
-    def test_load_more_onclick_calls_load_more(self):
-        html = self._read_template()
-        self.assertIn("loadMorePrograms", html)
+        self.assertNotIn("loadMoreBtn", html)
 
 
 # ---------------------------------------------------------------------------
-# Criterion 15 – programs.js sends page in request body
+# Criterion 15 – programs.js sends force_refresh in request body
 # ---------------------------------------------------------------------------
 
 class TestProgramsJsSendsPage(unittest.TestCase):
-    """Criterion 15: programs.js fetch body includes page field."""
+    """Criterion 15: programs.js fetch body includes force_refresh field."""
 
     def _read_js(self):
         base = os.path.dirname(os.path.dirname(__file__))
@@ -762,19 +717,9 @@ class TestProgramsJsSendsPage(unittest.TestCase):
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
-    def test_page_field_in_fetch_body(self):
+    def test_force_refresh_in_fetch_body(self):
         js = self._read_js()
-        self.assertIn("page", js)
-
-    def test_page_1_sent_on_initial_search(self):
-        js = self._read_js()
-        # Initial search sends page: 1
-        self.assertIn("page: 1", js)
-
-    def test_current_page_sent_on_load_more(self):
-        js = self._read_js()
-        # loadMorePrograms uses currentPage
-        self.assertIn("page: currentPage", js)
+        self.assertIn("force_refresh", js)
 
     def test_fetch_uses_post_method(self):
         js = self._read_js()

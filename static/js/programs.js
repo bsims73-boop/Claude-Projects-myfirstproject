@@ -1,9 +1,3 @@
-const cache = {};
-let currentPage = 1;
-let currentState = '';
-let currentFarmType = '';
-let currentCounty = '';
-
 async function researchPrograms() {
   const state = document.getElementById('stateSelect').value;
   const farmType = document.getElementById('farmTypeSelect').value;
@@ -11,13 +5,6 @@ async function researchPrograms() {
 
   if (!state || !farmType) {
     showToast('Please select both a state and farm type.', 'warning');
-    return;
-  }
-
-  const key = `${state}|${farmType}|${county}`;
-  if (cache[key]) {
-    renderPrograms(cache[key].programs, state, farmType, county);
-    setLoadMore(cache[key].has_more);
     return;
   }
 
@@ -30,16 +17,11 @@ async function researchPrograms() {
     const res = await fetch('/api/programs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state, farm_type: farmType, county, page: 1 }),
+      body: JSON.stringify({ state, farm_type: farmType, county }),
     });
     const data = await res.json();
-    currentPage = 1;
-    currentState = state;
-    currentFarmType = farmType;
-    currentCounty = county;
-    cache[key] = data;
     renderPrograms(data.programs, state, farmType, county);
-    setLoadMore(data.has_more);
+    updateLastUpdated(data.cached_at);
   } catch (e) {
     showToast('Failed to load programs: ' + e.message, 'danger');
     document.getElementById('programsEmpty').classList.remove('d-none');
@@ -117,46 +99,59 @@ function renderPrograms(programs, state, farmType, county) {
   document.getElementById('programsResults').classList.remove('d-none');
 }
 
-function setLoadMore(show) {
-  document.getElementById('loadMoreBtn').style.display = show ? 'block' : 'none';
-}
+async function refreshPrograms() {
+  const state = document.getElementById('stateSelect').value;
+  const farmType = document.getElementById('farmTypeSelect').value;
+  const county = document.getElementById('countySelect').value;
 
-async function loadMorePrograms() {
-  currentPage += 1;
-  const btn = document.getElementById('loadMoreBtn');
+  if (!state || !farmType) {
+    showToast('Please select both a state and farm type.', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('refreshBtn');
   btn.disabled = true;
-  btn.textContent = 'Loading...';
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refreshing...';
 
   try {
     const res = await fetch('/api/programs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: currentState, farm_type: currentFarmType, county: currentCounty, page: currentPage }),
+      body: JSON.stringify({ state, farm_type: farmType, county, force_refresh: true }),
     });
     const data = await res.json();
-    const key = `${currentState}|${currentFarmType}|${currentCounty}`;
-    const existing = cache[key] || { programs: [] };
-    const merged = existing.programs.concat(data.programs);
-    cache[key] = { ...data, programs: merged };
-    const accordion = document.getElementById('programsAccordion');
-    const startIdx = existing.programs.length;
-    accordion.innerHTML += data.programs.map((p, i) => programCard(p, startIdx + i)).join('');
-    setLoadMore(data.has_more);
+    renderPrograms(data.programs, state, farmType, county);
+    updateLastUpdated(data.cached_at);
   } catch (e) {
     showToast('Failed to load programs: ' + e.message, 'danger');
-    currentPage -= 1;
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-arrow-down-circle me-1"></i>Load More Programs';
+    btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Refresh';
   }
 }
 
+function updateLastUpdated(cachedAt) {
+  const el = document.getElementById('lastUpdated');
+  if (!cachedAt) {
+    el.textContent = 'Not yet searched';
+    return;
+  }
+  const diff = Math.floor((Date.now() - new Date(cachedAt).getTime()) / 1000);
+  let label;
+  if (diff < 60) {
+    label = 'Updated just now';
+  } else if (diff < 3600) {
+    label = `Updated ${Math.floor(diff / 60)} minute${Math.floor(diff / 60) !== 1 ? 's' : ''} ago`;
+  } else if (diff < 86400) {
+    label = `Updated ${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) !== 1 ? 's' : ''} ago`;
+  } else {
+    label = `Updated ${Math.floor(diff / 86400)} day${Math.floor(diff / 86400) !== 1 ? 's' : ''} ago`;
+  }
+  el.textContent = label;
+}
+
 function clearResults() {
-  setLoadMore(false);
-  currentPage = 1;
-  currentState = '';
-  currentFarmType = '';
-  currentCounty = '';
+  document.getElementById('lastUpdated').textContent = 'Not yet searched';
   document.getElementById('programsResults').classList.add('d-none');
   document.getElementById('programsEmpty').classList.remove('d-none');
   document.getElementById('stateSelect').value = '';
