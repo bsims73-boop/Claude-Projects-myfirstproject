@@ -20,7 +20,7 @@ def fetch_grants_gov(state, farm_type, page=1, per_page=PER_PAGE):
         resp = requests.post(
             "https://api.grants.gov/v1/api/search2",
             json={
-                "keyword": f"{farm_type} agriculture",
+                "keyword": f"{farm_type} agriculture conservation loan habitat",
                 "oppStatuses": "posted|forecasted",
                 "agencies": "USDA",
                 "rows": per_page,
