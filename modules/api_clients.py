@@ -20,7 +20,7 @@ def fetch_grants_gov(state, farm_type, page=1, per_page=PER_PAGE):
         resp = requests.post(
             "https://api.grants.gov/v1/api/search2",
             json={
-                "keyword": f"{farm_type} {state} agriculture",
+                "keyword": f"{farm_type} agriculture",
                 "oppStatuses": "posted|forecasted",
                 "agencies": "USDA",
                 "rows": per_page,
@@ -57,26 +57,34 @@ def fetch_sam_gov(state, farm_type, page=1, per_page=PER_PAGE):
         return []
     try:
         resp = requests.get(
-            "https://api.sam.gov/assistance-listings/v2/search",
+            "https://api.sam.gov/assistance-listings/v1/search",
             params={
                 "api_key": config.SAM_GOV_API_KEY,
-                "keyword": f"{farm_type} {state} agriculture",
+                "keyword": f"{farm_type} agriculture",
                 "status": "Active",
                 "pageSize": per_page,
-                "pageNumber": page - 1,
+                "pageNumber": page,
             },
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
         listings = data.get("assistanceListingsData", [])
+        _USDA_TERMS = {"usda", "agriculture", "fsa", "nrcs", "rural development",
+                       "aphis", "ams", "rma", "fns", "farm service", "natural resources"}
         result = []
         for listing in listings:
+            agency = ((listing.get("federalOrganization") or {}).get("agency") or "").lower()
+            title = (listing.get("title") or "").lower()
+            objective = ((listing.get("overview") or {}).get("objective") or "").lower()
+            combined = f"{agency} {title} {objective}"
+            if not any(term in combined for term in _USDA_TERMS):
+                continue
             result.append({
-                "title": listing.get("programTitle") or listing.get("title"),
-                "assistance_listing_id": listing.get("assistanceListingId") or listing.get("id"),
-                "agency": (listing.get("federalOrganization") or {}).get("agency") or listing.get("agencyName"),
-                "objective": (listing.get("overview") or {}).get("objective") or listing.get("objective"),
+                "title": listing.get("title"),
+                "assistance_listing_id": listing.get("assistanceListingId"),
+                "agency": (listing.get("federalOrganization") or {}).get("agency"),
+                "objective": (listing.get("overview") or {}).get("objective"),
                 "status": listing.get("status"),
                 "source": "sam.gov",
             })
@@ -94,13 +102,13 @@ def fetch_simpler_grants(state, farm_type, page=1, per_page=PER_PAGE):
         resp = requests.post(
             "https://api.simpler.grants.gov/v1/opportunities/search",
             json={
-                "query": f"{farm_type} {state} agriculture",
+                "query": f"{farm_type} agriculture",
                 "pagination": {
                     "page_offset": page,
                     "page_size": per_page,
                 },
             },
-            headers={"Authorization": f"Bearer {config.SIMPLER_GRANTS_API_KEY}"},
+            headers={"X-Api-Key": config.SIMPLER_GRANTS_API_KEY},
             timeout=10,
         )
         resp.raise_for_status()
