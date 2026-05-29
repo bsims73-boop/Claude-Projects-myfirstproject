@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import config
 
 try:
@@ -12,6 +13,13 @@ logger = logging.getLogger(__name__)
 PER_PAGE = 25
 
 
+def _clean_farm_type(farm_type):
+    """Strip parenthetical content from farm type labels for cleaner API keywords.
+    e.g. 'Row Crops (corn, soybeans, wheat, etc.)' -> 'Row Crops'
+    """
+    return re.sub(r'\s*\(.*?\)', '', farm_type).strip()
+
+
 def fetch_grants_gov(state, farm_type, page=1, per_page=PER_PAGE):
     """Fetch from Grants.gov search API. No API key required."""
     if requests is None:
@@ -20,7 +28,7 @@ def fetch_grants_gov(state, farm_type, page=1, per_page=PER_PAGE):
         resp = requests.post(
             "https://api.grants.gov/v1/api/search2",
             json={
-                "keyword": f"{farm_type} agriculture conservation loan habitat",
+                "keyword": f"{_clean_farm_type(farm_type)} agriculture conservation loan habitat",
                 "oppStatuses": "posted|forecasted",
                 "agencies": "USDA",
                 "rows": per_page,
@@ -60,7 +68,7 @@ def fetch_sam_gov(state, farm_type, page=1, per_page=PER_PAGE):
             "https://api.sam.gov/assistance-listings/v1/search",
             params={
                 "api_key": config.SAM_GOV_API_KEY,
-                "keyword": f"{farm_type} agriculture",
+                "keyword": f"{_clean_farm_type(farm_type)} agriculture",
                 "status": "Active",
                 "pageSize": per_page,
                 "pageNumber": page,
@@ -102,7 +110,7 @@ def fetch_simpler_grants(state, farm_type, page=1, per_page=PER_PAGE):
         resp = requests.post(
             "https://api.simpler.grants.gov/v1/opportunities/search",
             json={
-                "query": f"{farm_type} agriculture",
+                "query": f"{_clean_farm_type(farm_type)} agriculture",
                 "pagination": {
                     "page_offset": page,
                     "page_size": per_page,
