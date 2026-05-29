@@ -45,6 +45,14 @@ def init_db():
                 files_processed  INTEGER,
                 files_errored    INTEGER
             );
+
+            CREATE TABLE IF NOT EXISTS program_cache (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                cache_key     TEXT NOT NULL UNIQUE,
+                programs_json TEXT NOT NULL,
+                seen_ids_json TEXT NOT NULL DEFAULT '[]',
+                updated_at    TEXT NOT NULL
+            );
         """)
 
 
@@ -163,3 +171,33 @@ def get_last_scan():
         return conn.execute(
             "SELECT * FROM scan_log ORDER BY run_at DESC LIMIT 1"
         ).fetchone()
+
+
+def get_program_cache(cache_key):
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM program_cache WHERE cache_key = ?", (cache_key,)
+        ).fetchone()
+
+
+def upsert_program_cache(cache_key, programs_json, seen_ids_json):
+    updated_at = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO program_cache (cache_key, programs_json, seen_ids_json, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(cache_key) DO UPDATE SET
+                   programs_json = excluded.programs_json,
+                   seen_ids_json = excluded.seen_ids_json,
+                   updated_at    = excluded.updated_at""",
+            (cache_key, programs_json, seen_ids_json, updated_at),
+        )
+
+
+def update_program_cache_timestamp(cache_key):
+    updated_at = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE program_cache SET updated_at = ? WHERE cache_key = ?",
+            (updated_at, cache_key),
+        )

@@ -48,7 +48,7 @@ def test_programs_search_with_county_passes_county_to_service(client):
             json={"state": "Iowa", "farm_type": "Dairy", "county": "Polk"},
         )
         assert response.status_code == 200
-        mock_fn.assert_called_once_with("Iowa", "Dairy", "Polk", 1)
+        mock_fn.assert_called_once_with("Iowa", "Dairy", "Polk", False)
 
 
 # Criterion 3: Search without county works and passes empty county
@@ -76,7 +76,7 @@ def test_programs_search_with_invalid_county_drops_it(client):
             json={"state": "Iowa", "farm_type": "Dairy", "county": "FakeCounty123"},
         )
         assert response.status_code == 200
-        mock_fn.assert_called_once_with("Iowa", "Dairy", "", 1)
+        mock_fn.assert_called_once_with("Iowa", "Dairy", "", False)
 
 
 # Criterion 5 (Alaska): Alaska borough names stored without modification
