@@ -14,7 +14,12 @@ try:
 except Exception:
     _CURATED_PROGRAMS = []
 
-_PILOT_STATES = {"KY", "OH", "WV"}
+# Maps both full state names and abbreviations to the 2-letter code used in curated JSON
+_PILOT_STATE_CODES = {
+    "kentucky": "KY", "ky": "KY",
+    "ohio": "OH", "oh": "OH",
+    "west virginia": "WV", "wv": "WV",
+}
 
 FARM_TYPES = [
     "Row Crops (corn, soybeans, wheat, etc.)",
@@ -55,7 +60,7 @@ def research_farm_programs(state, farm_type, county="", force_refresh=False):
         sources_queried.append("sam.gov")
     if config.SIMPLER_GRANTS_API_KEY:
         sources_queried.append("simpler.grants.gov")
-    if state.upper() in _PILOT_STATES:
+    if state.lower() in _PILOT_STATE_CODES:
         sources_queried.append("state-programs")
 
     cache_key = f"{state}|{farm_type}|{county}".lower()
@@ -163,10 +168,10 @@ def research_farm_programs(state, farm_type, county="", force_refresh=False):
 
 
 def _get_curated(state):
-    s = state.upper()
-    if s not in _PILOT_STATES:
+    code = _PILOT_STATE_CODES.get(state.lower())
+    if not code:
         return []
-    return [p for p in _CURATED_PROGRAMS if p.get("state", "").upper() == s]
+    return [p for p in _CURATED_PROGRAMS if p.get("state", "").upper() == code]
 
 
 def _trim_raw(program):
