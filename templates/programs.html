@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Farm Programs — Farm Receipt Manager{% endblock %}
+
+{% block content %}
+<h2 class="mb-1"><i class="bi bi-award me-2 text-success"></i>Farm Assistance Programs</h2>
+<p class="text-muted mb-4">Find federal, state, and local programs available for your farming operation.</p>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">State</label>
+        <select class="form-select" id="stateSelect">
+          <option value="">-- Select your state --</option>
+          {% for state in [
+            "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
+            "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
+            "Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan",
+            "Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire",
+            "New Jersey","New Mexico","New York","North Carolina","North Dakota","Ohio",
+            "Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina","South Dakota",
+            "Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia",
+            "Wisconsin","Wyoming"
+          ] %}
+          <option value="{{ state }}">{{ state }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">County <span class="text-muted fw-normal small">(optional)</span></label>
+        <select class="form-select" id="countySelect" disabled>
+          <option value="">-- Select state first --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Farm Type</label>
+        <select class="form-select" id="farmTypeSelect">
+          <option value="">-- Select farm type --</option>
+          {% for ft in farm_types %}
+          <option value="{{ ft }}">{{ ft }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-success w-100" onclick="researchPrograms()" id="researchBtn">
+          <i class="bi bi-search me-1"></i>Research Programs
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Loading state -->
+<div id="programsLoading" class="d-none text-center py-5">
+  <div class="spinner-border text-success mb-3" style="width:3rem;height:3rem;"></div>
+  <p class="text-muted">Researching available programs... this may take up to 30 seconds.</p>
+</div>
+
+<!-- Results -->
+<div id="programsResults" class="d-none">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h5 id="resultsHeading" class="mb-0"></h5>
+    <button class="btn btn-outline-secondary btn-sm" onclick="clearResults()">
+      <i class="bi bi-x-circle me-1"></i>Clear Results
+    </button>
+  </div>
+
+  <div class="mb-3">
+    <span class="badge bg-primary me-2"><i class="bi bi-bank me-1"></i>Federal</span>
+    <span class="badge bg-success me-2"><i class="bi bi-building me-1"></i>State</span>
+    <span class="badge bg-warning text-dark"><i class="bi bi-geo-alt me-1"></i>Local</span>
+  </div>
+
+  <div class="accordion" id="programsAccordion"></div>
+
+  <div class="text-center mt-3">
+    <button class="btn btn-outline-success" id="loadMoreBtn" onclick="loadMorePrograms()" style="display:none;">
+      <i class="bi bi-arrow-down-circle me-1"></i>Load More Programs
+    </button>
+  </div>
+</div>
+
+<div id="programsEmpty" class="d-none text-center text-muted py-5">
+  <i class="bi bi-search display-4 d-block mb-3"></i>
+  Select your state and farm type above, then click Research Programs.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/programs.js"></script>
+{% endblock %}

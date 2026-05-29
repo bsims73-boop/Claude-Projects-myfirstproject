@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Receipts — Farm Receipt Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h2 class="mb-0"><i class="bi bi-receipt me-2 text-success"></i>Receipts</h2>
+  <div class="d-flex align-items-center gap-3">
+    <div class="text-muted small" id="statsBar">Loading...</div>
+    <button id="scanBtn" class="btn btn-success" onclick="scanNow()">
+      <span id="scanBtnIcon"><i class="bi bi-search me-1"></i>Scan Now</span>
+      <span id="scanBtnSpinner" class="d-none">
+        <span class="spinner-border spinner-border-sm me-1"></span>Scanning...
+      </span>
+    </button>
+  </div>
+</div>
+<div class="text-muted small mb-3" id="lastScanInfo"></div>
+
+<div class="table-responsive">
+  <table class="table table-hover align-middle" id="receiptsTable">
+    <thead class="table-success">
+      <tr>
+        <th>Date</th>
+        <th>Company</th>
+        <th class="text-end">Amount</th>
+        <th class="text-center">Receipt Image</th>
+        <th class="text-center">Details</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="receiptsBody">
+      <tr><td colspan="6" class="text-center text-muted py-4">
+        <span class="spinner-border spinner-border-sm me-2"></span>Loading receipts...
+      </td></tr>
+    </tbody>
+    <tfoot id="receiptsFoot"></tfoot>
+  </table>
+</div>
+
+<p class="text-muted small">
+  <i class="bi bi-info-circle me-1"></i>
+  Drop receipt images (JPG, PNG, PDF) into the <code>receipts/</code> folder, then click <strong>Scan Now</strong>.
+</p>
+
+<!-- Line Items Modal -->
+<div class="modal fade" id="lineItemsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-list-ul me-2"></i>Receipt Details</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-2" id="modalReceiptInfo"></p>
+        <div id="lineItemsLoading" class="text-center py-3">
+          <span class="spinner-border text-success"></span>
+        </div>
+        <div id="lineItemsContent" class="d-none">
+          <table class="table table-sm table-striped">
+            <thead class="table-light">
+              <tr><th>Item</th><th class="text-center">Qty</th><th class="text-end">Unit Price</th><th class="text-end">Line Total</th></tr>
+            </thead>
+            <tbody id="lineItemsBody"></tbody>
+          </table>
+        </div>
+        <div id="lineItemsEmpty" class="d-none text-center text-muted py-3">
+          <i class="bi bi-info-circle me-1"></i>No individual line items found for this receipt.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/receipts.js"></script>
+{% endblock %}
