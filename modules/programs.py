@@ -8,6 +8,19 @@ import config
 from modules.ocr import get_client, _strip_markdown
 from modules import api_clients, db
 
+_CURATED_PATH = config.BASE_DIR / "static" / "data" / "curated_state_programs.json"
+try:
+    _CURATED_PROGRAMS = json.loads(_CURATED_PATH.read_text(encoding="utf-8"))
+except Exception:
+    _CURATED_PROGRAMS = []
+
+# Maps both full state names and abbreviations to the 2-letter code used in curated JSON
+_PILOT_STATE_CODES = {
+    "kentucky": "KY", "ky": "KY",
+    "ohio": "OH", "oh": "OH",
+    "west virginia": "WV", "wv": "WV",
+}
+
 FARM_TYPES = [
     "Row Crops (corn, soybeans, wheat, etc.)",
     "Livestock (beef cattle, hogs, sheep)",
@@ -30,6 +43,8 @@ def _build_location(state, county):
 
 
 def _stable_id(p):
+    if p.get("curated_id"):
+        return p["curated_id"]
     if p.get("opportunity_id"):
         return str(p["opportunity_id"])
     if p.get("assistance_listing_id"):
@@ -45,6 +60,8 @@ def research_farm_programs(state, farm_type, county="", force_refresh=False):
         sources_queried.append("sam.gov")
     if config.SIMPLER_GRANTS_API_KEY:
         sources_queried.append("simpler.grants.gov")
+    if state.lower() in _PILOT_STATE_CODES:
+        sources_queried.append("state-programs")
 
     cache_key = f"{state}|{farm_type}|{county}".lower()
 
@@ -55,7 +72,7 @@ def research_farm_programs(state, farm_type, county="", force_refresh=False):
             if age_days < CACHE_TTL_DAYS:
                 return {
                     "programs": json.loads(row["programs_json"]),
-                    "sources_queried": [],
+                    "sources_queried": sources_queried,
                     "cached_at": row["updated_at"],
                 }
             # else: expired, fall through to live fetch
@@ -73,6 +90,9 @@ def research_farm_programs(state, farm_type, county="", force_refresh=False):
         raw_deduped = api_clients.deduplicate(raw_all)
 
         if not raw_deduped:
+            curated = _get_curated(state)
+            if curated:
+                return {"programs": curated, "sources_queried": sources_queried, "cached_at": None}
             return {"programs": [], "sources_queried": sources_queried, "cached_at": None}
 
         # Incremental enrichment
@@ -112,12 +132,24 @@ def research_farm_programs(state, farm_type, county="", force_refresh=False):
             text = _strip_markdown(response.content[0].text.strip())
             new_enriched = json.loads(text)
             all_programs = cached_programs + new_enriched
-            new_seen_ids = list(seen_ids | {_stable_id(p) for p in new_raw})
-            db.upsert_program_cache(cache_key, json.dumps(all_programs), json.dumps(new_seen_ids))
+            new_seen_ids = seen_ids | {_stable_id(p) for p in new_raw}
+            curated = _get_curated(state)
+            for p in curated:
+                pid = _stable_id(p)
+                if pid not in new_seen_ids:
+                    all_programs.append(p)
+                    new_seen_ids.add(pid)
+            db.upsert_program_cache(cache_key, json.dumps(all_programs), json.dumps(list(new_seen_ids)))
             cached_at = datetime.now().isoformat()
         else:
             # No new IDs — no Claude call, but timestamp still updates
             all_programs = cached_programs
+            curated = _get_curated(state)
+            for p in curated:
+                pid = _stable_id(p)
+                if pid not in seen_ids:
+                    all_programs.append(p)
+                    seen_ids.add(pid)
             db.update_program_cache_timestamp(cache_key)
             cached_at = datetime.now().isoformat()
 
@@ -133,6 +165,13 @@ def research_farm_programs(state, farm_type, county="", force_refresh=False):
         return {"programs": [_error_card(f"Could not parse program data. Error: {e}")], "sources_queried": sources_queried, "cached_at": None}
     except Exception as e:
         return {"programs": [_error_card(str(e))], "sources_queried": sources_queried, "cached_at": None}
+
+
+def _get_curated(state):
+    code = _PILOT_STATE_CODES.get(state.lower())
+    if not code:
+        return []
+    return [p for p in _CURATED_PROGRAMS if p.get("state", "").upper() == code]
 
 
 def _trim_raw(program):
